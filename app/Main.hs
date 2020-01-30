@@ -1,6 +1,6 @@
 module Main where
-
 import Lib
+import Control.Monad (join)
 
 main :: IO ()
-main = someFunc
+main = join (readExpr <$> initEnv <*> getLine) >>= putStrLn
