@@ -1,66 +1,81 @@
 module Lib (nullEnv, initEnv, readExpr) where
-import Text.Parsec
 import System.IO hiding (try)
-import Data.IORef
+import Text.Parsec
+import Text.Regex.TDFA
 import Control.Monad
 import Control.Monad.Trans (liftIO)
-import Data.Maybe (fromMaybe, mapMaybe)
-import Text.Regex.TDFA
+import Data.IORef
+import Data.Maybe
+import Data.Either (fromRight)
 import Data.List
+import Data.Foldable (foldrM)
 
-main = join (readExpr <$> initEnv <*> getLine) >>= putStrLn
-
-readExpr :: Env -> String -> IO String
 readExpr envRef input = do
-    output <- runParserT (parseExpr envRef) () "guardDemo" input
-    return $ case output of
-        Left err  -> "No match: " ++ show err
-        Right val -> show val
-        
-parseExpr :: Env -> ParsecT String () IO [Func]
+    toks <- fromRight [] <$> runParserT (parseExpr envRef) () "guardDemo" input
+    Lib.showList . map showExpr <$> evalAll toks where
+        showExpr x = fst x ++ show (snd x)
+
+showList :: Show a => [a] -> String
+showList = unwords . map show
+
+parseExpr :: Env -> ParsecT String () IO [Token]
 parseExpr envRef = parseFunc envRef `sepBy` many1 (oneOf " \t\n")
 
-data Func = Func { args :: [Func], body :: String, closure :: Env }
-
+data Func = Func [Token] [Token] Env
+          | Prim String
+          
 instance Show Func where
-    show (Func args body _) = "Func(" ++ show args ++ "): " ++ body
-
-parseFunc :: Env -> ParsecT String () IO Func
+    show (Func args body _) = "(" ++ Lib.showList args ++ "): " ++ Lib.showList body
+    show (Prim name) = name
+    
+parseFunc :: Env -> ParsecT String () IO Token
 parseFunc envRef = many (noneOf " \t\n") >>= liftIO . getFunc envRef
 
-type Env = IORef [(String, IORef Func)]
+type Token = (String, [Func])
 
+type Env = IORef [(String, IORef [IORef Func])]
+    
 nullEnv :: IO Env
 nullEnv = newIORef []
 
 initEnv :: IO Env
 initEnv = do
     env <- nullEnv
-    bindFuncs env [("^[0-9]+$", Func [] "digit" env),
-                   ("foo", Func [] "foo" env),
-                   ("bar", Func [] "bar" env),
-                   ("baz", Func [] "baz" env)]
-                   
-lsFunc :: Env -> IO [(String, Func)]
-lsFunc envRef = readIORef envRef >>= mapM getF where
-    getF (label, func) = (,) label <$> readIORef func
+    bindFuncs env [("^[0-9]+$", [Prim "num"]),
+                   ("^[+*/-]$",   [Prim "numop"])]
 
-getFunc :: Env -> String -> IO Func
+primitives :: [(String, [Token] -> [Token])]
+primitives = [("num",   num),
+              ("numop", nop),
+              ("nil",   nop)]
+              
+num, nop :: [Token] -> [Token]
+num ((arg1, [Prim "num"]) : (op, [Prim "numop"]) : (arg2, [Prim "num"]) : xs) =
+    (show $ fromJust (lookup op numOps) (read arg1) (read arg2), [Prim "num"]) : xs
+num args = args
+nop args = args
+
+numOps = [("+", (+)),
+          ("-", (-)),
+          ("*", (*)),
+          ("/", div)]
+
+nil :: IO [Func]
+nil = return [Prim "nil"]
+
+getFunc :: Env -> String -> IO Token
 getFunc envRef label = do
-    env <- readIORef envRef
-    maybe (return $ Func [] ":(" envRef) (readIORef . snd) (find ((label =~) . fst) env)
-        
-defineFunc :: Env -> String -> [Func] -> String -> IO Func
-defineFunc envRef label args body = do
-    env <- readIORef envRef
-    let func = Func args body envRef
-    funcRef <- newIORef func
-    writeIORef envRef $ (label, funcRef) : env
-    return func
+    funcs <- find ((label =~) . fst) <$> readIORef envRef
+    (,) label <$> maybe nil (unpack . snd) funcs where
+        unpack funcs = readIORef funcs >>= mapM readIORef
     
-bindFuncs :: Env -> [(String, Func)] -> IO Env
+bindFuncs :: Env -> [(String, [Func])] -> IO Env
 bindFuncs envRef bindings = readIORef envRef >>= extendEnv >>= newIORef where
     extendEnv env = fmap (++ env) (mapM addBinding bindings)
-    addBinding (name, value) = do
-        ref <- newIORef value
-        return (name, ref)
+    addBinding (name, values) = (,) name <$> (mapM newIORef values >>= newIORef)
+
+evalAll :: [Token] -> IO [Token]
+evalAll = foldrM (\x y -> eval <$> return (x : y)) []
+
+eval :: [Token] -> [Token]
+eval args@((_, [Prim func]) : _) = fromJust (lookup func primitives) args
