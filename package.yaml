@@ -28,6 +28,8 @@ library:
   - parsec
   - regex-tdfa
   - mtl
+  - extra
+  - monad-loops
 
 executables:
   El-exe:
