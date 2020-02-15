@@ -1,6 +1,4 @@
-import El.Parser
 import El.Environment
-import Control.Monad (join)
+import El.Parser
 
-main :: IO ()
-main = join (readExpr <$> initEnv <*> getLine) >>= print
+main = initEnv >>= runRepl

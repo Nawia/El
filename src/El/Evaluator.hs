@@ -1,4 +1,4 @@
-module El.Evaluation (primitives, evalAll, eval) where
+module El.Evaluator (primitives, evalAll, eval) where
 import El.Data
 import El.Environment
 import Data.IORef (newIORef)
