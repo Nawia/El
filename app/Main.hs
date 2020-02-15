@@ -1,5 +1,5 @@
-module Main where
-import Lib
+import El.Parser
+import El.Environment
 import Control.Monad (join)
 
 main :: IO ()
