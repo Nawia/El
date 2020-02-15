@@ -14,12 +14,11 @@ import Data.Function (on)
 import Control.Monad.Extra (notM)
 import Control.Monad.Loops
 
-readExpr :: Env -> String -> IO String
+readExpr :: Env -> String -> IO [Token]
 readExpr envRef input = do
     toks <- fromRight [] <$> runParserT (parseExpr envRef) () "El" input
-    unwords . map showExpr <$> evalAll toks where
-        showExpr x = show $ fst x ++ " " ++ show (snd x)
-        
+    evalAll toks
+    
 parseExpr :: Env -> ParsecT String () IO [Token]
 parseExpr envRef = parseFunc envRef `sepBy` many1 (oneOf " \t\n")
 
@@ -27,8 +26,8 @@ data Func = Func [([Token], [Token], Env)]
           | Prim String Env
           
 instance Show Func where
-    show (Func func) = unwords $ map showFunc func where
-        showFunc (args, body, _) = "(" ++ show args ++ "): " ++ show body
+    show (Func func) = intercalate ", " $ map showFunc func where
+        showFunc (args, body, _) = show args ++ ": ..."
     show (Prim name _) = name
     
 instance Eq Func where
@@ -58,24 +57,28 @@ nullEnv = newIORef []
 
 initEnv :: IO Env
 initEnv = do
-    envRef <- nullEnv
+    envRef <- newIORef []
     bindFuncs envRef [("^[0-9]+$", Prim "num" envRef),
                       ("^[+*/-]$", Prim "numop" envRef),
                       ("inc", Func [([("a", Prim "num" envRef)],
                                      [("a", Prim "nil" envRef), ("+", Prim "numop" envRef), ("1", Prim "num" envRef)],
-                                     envRef)])]
-                                     
+                                     envRef)]),
+                      ("=", Prim "assign" envRef)]
+                      
 primitives :: [(String, [Token] -> IO [Token])]
 primitives = [("num",   num),
               ("funcArg", funcArg),
-              ("numop", return)]
+              ("anyFunc", anyFunc)]
               
-num, funcArg :: [Token] -> IO [Token]
-num ((arg1, Prim "num" _) : (op, Prim "numop" _) : (arg2, Prim "num" _) : xs) = do
+num, funcArg, anyFunc :: [Token] -> IO [Token]
+num ((arg1, Prim "num" _) : (op, Prim "numop" _) : (arg2, Prim "num" _) : args) = do
     envRef <- nullEnv
-    return $ (show $ fromJust (lookup op numOps) (read arg1) (read arg2), Prim "num" envRef) : xs
+    return $ (show $ fromJust (lookup op numOps) (read arg1) (read arg2), Prim "num" envRef) : args
 num args = return args
 funcArg ((name, Prim "funcArg" envRef) : args) = liftM2 (:) (getFunc envRef name) (return args) >>= eval
+anyFunc ((name, _) : ("=", Prim "assign" envRef) : val : args) =
+    liftM2 (:) (setFunc envRef (name, Func [([], [val], envRef)])) (return args)
+anyFunc args = return args
 
 numOps :: [(String, Integer -> Integer -> Integer)]
 numOps = [("+", (+)),
@@ -124,9 +127,8 @@ setFunc envRef (name, func) = findFunc (==) envRef name >>= maybe defineFunc (se
     funcRefEq = liftM2 (==) `on` (unwrapFunc . FuncRef . (:[]))
     
 bindFuncs :: Env -> [Token] -> IO Env
-bindFuncs envRef bindings = readIORef envRef >>= extendEnv >>= newIORef where
-    extendEnv env = fmap (++ env) (mapM wrapToken bindings)
-    
+bindFuncs envRef bindings = mapM_ (setFunc envRef) bindings >> return envRef
+
 wrapToken :: Token -> IO TokenRef
 wrapToken (name, func) = (,) name <$> (wrapFunc func >>= newIORef)
 
@@ -145,7 +147,7 @@ evalAll :: [Token] -> IO [Token]
 evalAll = foldrM (\x y -> eval $ x : y) []
 
 eval :: [Token] -> IO [Token]
-eval args@(     (_, Prim func _)   : _) = maybe return ($) (lookup func primitives) args
+eval args@(     (_, Prim func _)   : _) = maybe anyFunc ($) (lookup func primitives) args
 eval args@(func@(funcName, Func _) : _) = case fetchFunc args of
     Nothing                     -> return args
     Just (fetchedFunc, argTail) -> do
@@ -154,7 +156,7 @@ eval args@(func@(funcName, Func _) : _) = case fetchFunc args of
         
 buildFunc :: [Token] -> IO [Token]
 buildFunc ((funcName, Func [(funcArgs, funcBody, funcEnv)]) : args) = do
-    closure <- join $ bindFuncs <$> nullEnv <*> (readIORef funcEnv >>= mapM unwrapToken)
+    closure <- join $ bindFuncs <$> newIORef [] <*> lsFuncs funcEnv
     mapM_ (setFunc closure) funcArgs
     return $ (funcName, Func [([], map (bindBody closure) funcBody, closure)]) : args where
     bindBody envRef (name, Prim "nil" _) = (name, Prim "funcArg" envRef)

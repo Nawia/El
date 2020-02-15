@@ -3,4 +3,4 @@ import Lib
 import Control.Monad (join)
 
 main :: IO ()
-main = join (readExpr <$> initEnv <*> getLine) >>= putStrLn
+main = join (readExpr <$> initEnv <*> getLine) >>= print
