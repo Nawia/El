@@ -1,4 +1,4 @@
-module El.Environment (nullEnv, initEnv, isBound, getFunc, matchFunc, lsFuncs, setFunc, bindFuncs) where
+module El.Environment (nullEnv, initEnv, getTypeName, getFunc, matchFunc, lsFuncs, setFunc, bindFuncs) where
 import El.Data
 import Text.Regex.TDFA ((=~))
 import Data.IORef
@@ -6,7 +6,7 @@ import Data.Maybe (isJust)
 import Data.List (find)
 import Data.Function (on)
 import Control.Monad (liftM2)
-import Control.Monad.Extra (notM)
+import Control.Monad.Extra (notM, maybeM)
 import Control.Monad.Loops (takeWhileM, dropWhileM)
 
 nullEnv :: IO Env
@@ -15,36 +15,53 @@ nullEnv = newIORef []
 initEnv :: IO Env
 initEnv = do
     envRef <- newIORef []
-    bindFuncs envRef [("^[0-9]+$", Prim "num" envRef),
-                      ("^[+*/-]$", Prim "numop" envRef),
-                      ("inc", Func [([("a", Prim "num" envRef)],
-                                     [("a", Prim "nil" envRef), ("+", Prim "numop" envRef), ("1", Prim "num" envRef)],
-                                     envRef)]),
-                      ("=", Prim "assign" envRef)]
+    bindFuncs envRef [("___(SUM|DIF|MUL|DIV)___", "___BINOP___", Prim "___BINOP___" envRef),
+                      ("\\+", "binop", Func [([], [("___SUM___", "___BINOP___")], envRef)]),
+                      ("-", "binop", Func [([], [("___DIF___", "___BINOP___")], envRef)]),
+                      ("\\*", "binop", Func [([], [("___MUL___", "___BINOP___")], envRef)]),
+                      ("/", "binop", Func [([], [("___DIV___", "___BINOP___")], envRef)]),
+                      ("-?[0-9]+(\\.[0-9]+)?", "num", Func [([("op", "___BINOP___"), ("arg2", "num")],
+                                                             [("op", "funcArg"), ("___SELF___", "funcArg"), ("arg2", "funcArg")],
+                                                             envRef)]),
+                      ("inc", "inc", Func [([("a", "num")],
+                                            [("___SUM___", "___BINOP___"), ("a", "nil"), ("1", "num")],
+                                            envRef)]),
+                      ("=", "assign", Prim "assign" envRef)]
                       
 nil :: IO Func
 nil = Prim "nil" <$> nullEnv
 
-isBound :: Env -> String -> IO Bool
-isBound envRef name = isJust <$> findFunc (==) envRef name
+nilToken :: String -> String -> IO Token
+nilToken name typeName = (,,) name typeName <$> nil
 
-getFunc, matchFunc :: Env -> String -> IO Token
-(getFunc, matchFunc) = (getFunc' (==), getFunc' (=~)) where
-    getFunc' matchOp envRef name = (,) name <$> (findFunc matchOp envRef name >>= maybe nil (unwrap . snd))
-    unwrap funcRef = readIORef funcRef >>= unwrapFunc
-    
-findFunc :: (String -> String -> Bool) -> Env -> String -> IO (Maybe TokenRef)
-findFunc matchOp envRef name = find (matchOp name . fst) <$> readIORef envRef
+getTypeName :: Env -> String -> IO String
+getTypeName envRef funcName = maybe "nil" unwrap <$> findFunc matchF envRef funcName where
+    matchF :: String -> TokenRef -> Bool
+    matchF key (name, _, _) = key =~ ('^' : name ++ "$")
+    unwrap (_, typeName, _) = typeName
+
+getFunc :: Env -> String -> IO Token
+getFunc envRef typeName = maybeM (nilToken "unknown_type" typeName) unwrapToken (findFunc matchF envRef typeName) where
+    matchF key (_, typeName, _) = key == typeName
+
+matchFunc :: Env -> String -> IO Token
+matchFunc envRef funcName = maybeM (nilToken funcName "nil") unwrap (findFunc matchF envRef funcName) where
+    matchF :: String -> TokenRef -> Bool
+    matchF key (name, _, _) = key =~ ('^' : name ++ "$")
+    unwrap (_, typeName, funcRef) = unwrapToken (funcName, typeName, funcRef)
+
+findFunc :: (String -> TokenRef -> Bool) -> Env -> String -> IO (Maybe TokenRef)
+findFunc matchF envRef key = find (matchF key) <$> readIORef envRef
 
 lsFuncs :: Env -> IO [Token]
 lsFuncs envRef = readIORef envRef >>= mapM unwrapToken
 
 setFunc :: Env -> Token -> IO Token
-setFunc envRef (name, func) = findFunc (==) envRef name >>= maybe defineFunc (setFunc' . snd) >> return (name, func) where
+setFunc envRef (name, typeName, func) = findFunc matchF envRef name >>= maybe defineFunc (setFunc' . unwrap) >> return (name, typeName, func) where
     defineFunc = do
         env <- readIORef envRef
-        funcRef <- wrapFunc func >>= newIORef
-        writeIORef envRef ((name, funcRef) : env)
+        token <- wrapToken (name, typeName, func)
+        writeIORef envRef (token : env)
     setFunc' oldFuncRef = do
         oldFunc <- readIORef oldFuncRef
         funcRef <- wrapFunc func
@@ -60,6 +77,8 @@ setFunc envRef (name, func) = findFunc (==) envRef name >>= maybe defineFunc (se
     breakM p = spanM $ notM <$> p
     spanM p xs = (,) <$> takeWhileM p xs <*> dropWhileM p xs
     funcRefEq = liftM2 (==) `on` (unwrapFunc . FuncRef . (:[]))
+    matchF key (name, _, _) = key == name
+    unwrap (_, _, func) = func
     
 bindFuncs :: Env -> [Token] -> IO Env
-bindFuncs envRef bindings = mapM_ (setFunc envRef) bindings >> return envRef
+bindFuncs envRef bindings = mapM_ (setFunc envRef) (reverse bindings) >> return envRef

@@ -1,10 +1,9 @@
-module El.Data (Func (Func, Prim), Token, FuncRef (FuncRef, PrimRef), TokenRef, Env,
-                wrapFunc, unwrapFunc, wrapToken, unwrapToken) where
+module El.Data where
 import Data.IORef
 import Data.Functor.Classes (liftEq)
 import Data.List (intercalate)
 
-data Func = Func [([Token], [Token], Env)]
+data Func = Func [([(String, String)], [(String, String)], Env)]
           | Prim String Env
           
 instance Show Func where
@@ -15,24 +14,24 @@ instance Show Func where
 instance Eq Func where
     (Func func1) == (Func func2) = liftEq eqFunc func1 func2 where
         eqFunc (args1, _, _) (args2, _, _) = liftEq eqArgs args1 args2
-        eqArgs (_, arg1) (_, arg2) = arg1 == arg2
+        eqArgs (_, typename1) (_, typename2) = typename1 == typename2
     (Prim func1 _) == (Prim func2 _) = func1 == func2
     _ == _ = False
     
-type Token = (String, Func)
+type Token = (String, String, Func)
 
-data FuncRef = FuncRef [IORef ([Token], [Token], Env)]
+data FuncRef = FuncRef [IORef ([(String, String)], [(String, String)], Env)]
              | PrimRef String Env
              
-type TokenRef = (String, IORef FuncRef)
+type TokenRef = (String, String, IORef FuncRef)
 
 type Env = IORef [TokenRef]
 
 wrapToken :: Token -> IO TokenRef
-wrapToken (name, func) = (,) name <$> (wrapFunc func >>= newIORef)
+wrapToken (name, typename, func) = (,,) name typename <$> (wrapFunc func >>= newIORef)
 
 unwrapToken :: TokenRef -> IO Token
-unwrapToken (name, funcRef) = (,) name <$> (readIORef funcRef >>= unwrapFunc)
+unwrapToken (name, typename, funcRef) = (,,) name typename <$> (readIORef funcRef >>= unwrapFunc)
 
 wrapFunc :: Func -> IO FuncRef
 wrapFunc (Func func) = FuncRef <$> mapM newIORef func
