@@ -8,22 +8,24 @@ import Data.Either (fromRight)
 import Control.Monad.Trans (liftIO)
 import Control.Monad.Loops (iterateUntil)
 
-runRepl :: Env -> IO [(String, String)]
-runRepl envRef = iterateUntil ((== "quit") . fst . head) (readPrompt ">" >>= evalString envRef)
-
+runRepl :: Env -> IO [Token]
+runRepl envRef = iterateUntil cond (readPrompt ">" >>= evalString envRef) where
+    cond []   = False
+    cond toks = (== "quit") . fst $ head toks
+    
 readPrompt :: String -> IO String
 readPrompt prompt = putStr prompt >> hFlush stdout >> getLine
 
-evalString :: Env -> String -> IO [(String, String)]
+evalString :: Env -> String -> IO [Token]
 evalString envRef expr = readExpr envRef expr >>= evalAll envRef >>= (<$) <*> print
 
-readExpr :: Env -> String -> IO [(String, String)]
+readExpr :: Env -> String -> IO [Token]
 readExpr envRef input = fromRight [] <$> runParserT (parseExpr envRef) () "El" input
     
-parseExpr :: Env -> ParsecT String () IO [(String, String)]
+parseExpr :: Env -> ParsecT String () IO [Token]
 parseExpr envRef = parseFunc envRef `sepBy` many1 (oneOf " \t\n")
 
-parseFunc :: Env -> ParsecT String () IO (String, String)
+parseFunc :: Env -> ParsecT String () IO Token
 parseFunc envRef = do
     name <- many1 (noneOf " \t\n")
     liftIO $ (,) name <$> getTypeName envRef name

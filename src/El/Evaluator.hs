@@ -1,4 +1,4 @@
-module El.Evaluator (primitives, evalAll, eval) where
+module El.Evaluator (evalAll) where
 import El.Data
 import El.Environment
 import Text.Read (readMaybe)
@@ -7,10 +7,10 @@ import Data.Foldable (foldrM)
 import Data.Maybe (fromJust, fromMaybe, listToMaybe, mapMaybe)
 import Control.Monad (liftM2, join)
 
-primitives :: [(String, [(String, String)] -> IO [(String, String)])]
-primitives = [("___BINOP___",   binop)]
-              
-binop :: [(String, String)] -> IO [(String, String)]
+internalFuncs :: [(String, [Token] -> IO [Token])]
+internalFuncs = [("___BINOP___",   binop)]
+
+binop :: [Token] -> IO [Token]
 binop args@((op, "___BINOP___") : (arg1, "num") : (arg2, "num") : argTail) =
     return $ fromMaybe args $ do
         func <- lookup op binOps
@@ -19,53 +19,49 @@ binop args@((op, "___BINOP___") : (arg1, "num") : (arg2, "num") : argTail) =
 binop args = return args
 
 binOps :: [(String, String -> String -> Maybe String)]
-binOps = [("___SUM___", numBinOp (+)),
-          ("___DIF___", numBinOp (-)),
+binOps = [("___ADD___", numBinOp (+)),
+          ("___SUM___", numBinOp (-)),
           ("___MUL___", numBinOp (*)),
           ("___DIV___", numBinOp (/))]
-
+          
 numBinOp :: (Double -> Double -> Double) -> String -> String -> Maybe String
 numBinOp f a b = show <$> (f <$> readMaybe a <*> readMaybe b)
 
-anyFunc :: [(String, String)] -> IO [(String, String)]
+anyFunc :: [Token] -> IO [Token]
 anyFunc args = return args
-          
-evalAll :: Env -> [(String, String)] -> IO [(String, String)]
+
+evalAll :: Env -> [Token] -> IO [Token]
 evalAll envRef = foldrM (\x y -> eval envRef $ x : y) []
 
 printEnv :: Env -> IO ()
 printEnv env = lsFuncs env >>= putStrLn . unlines . map show
 
-eval :: Env -> [(String, String)] -> IO [(String, String)]
-eval envRef args = getTok envRef (head args) >>= flip eval' args where
-    eval' (_, _, Prim func _) args                 = maybe anyFunc ($) (lookup func primitives) args
-    eval' (funcName, funcType, func@(Func _)) args = case fetchFunc func $ tail args of
-        Nothing                                        -> return args
-        Just (fetchedFunc@(Func _), funcArgs, argTail) -> do
-            f@(Func [(_, fB, fE)]) <- buildFunc (funcName, funcType, fetchedFunc) funcArgs
-            y <- evalAll fE fB
-            eval envRef (y ++ argTail)
-    getTok envRef (name, typename) = do
-        (_, _, func) <- matchFunc envRef name
-        return $ (,,) name typename func
-        
-buildFunc :: Token -> [Token] -> IO Func
-buildFunc (funcName, funcType, Func [(funcArgs, funcBody, funcEnv)]) args = do
-    closure <- join $ bindFuncs <$> newIORef [] <*> lsFuncs funcEnv
-    setFunc closure ("___SELF___", "funcArg", Func [([], [(funcName, funcType)], closure)])
-    mapM_ (setFunc closure) args
-    return $ Func [([], funcBody, closure)] where
-    mergeF (name, typeName) func = (name, typeName, func)
+eval :: Env -> [Token] -> IO [Token]
+eval envRef args = getVar envRef (head args) >>= eval' where
+    eval' (_, funcType, Func [])     = maybe anyFunc ($) (lookup funcType internalFuncs) args
+    eval' (funcName, funcType, func) = case fetchFunc func $ tail args of
+        Nothing                               -> return args
+        Just (Func [(_, [], _)], _, _)        -> return args
+        Just (fetchedFunc, funcArgs, argTail) -> do
+            (Func [(_, funcBody, funcEnvRef)]) <- buildFunc (funcName, funcType, fetchedFunc) funcArgs
+            evalAll funcEnvRef funcBody >>= eval envRef . (++ argTail)
+    getVar envRef tok@(name, typeName) = (,,) name typeName <$> getFunc envRef tok
     
-fetchFunc :: Func -> [(String, String)] -> Maybe (Func, [Token], [(String, String)])
-fetchFunc (Func func) args = listToMaybe $ mapMaybe (`fetchArgs` args) func where
-    fetchArgs func@(funcArgs, _, funcEnv) args = case fetchArgs' funcArgs [] args of
-        Nothing               -> Nothing
-        Just (fArgs, argTail) -> Just (Func [func], fArgs, argTail)
+buildFunc :: Var -> [Var] -> IO Func
+buildFunc (funcName, funcType, Func [(funcArgs, funcBody, funcEnvRef)]) args = do
+    newFuncEnvRef <- join $ bindVars <$> nullEnv <*> lsFuncs funcEnvRef
+    setVar newFuncEnvRef ("___SELF___", "funcArg", Func [([], [(funcName, funcType)], newFuncEnvRef)])
+    mapM_ (setVar newFuncEnvRef) args
+    return $ Func [([], funcBody, newFuncEnvRef)]
+    
+fetchFunc :: Func -> [Token] -> Maybe (Func, [Var], [Token])
+fetchFunc (Func func) args = listToMaybe $ mapMaybe fetchArgs func where
+    fetchArgs func@(funcArgs, _, funcEnv) = case fetchArgs' funcArgs [] args of
+        Nothing                  -> Nothing
+        Just (funcArgs, argTail) -> Just (Func [func], funcArgs, argTail)
         where
-            fetchArgs' :: [(String, String)] -> [Token] -> [(String, String)] -> Maybe ([Token], [(String, String)])
-            fetchArgs' [] acum args                                 = Just (reverse acum, args)
-            fetchArgs' _ _ []                                       = Nothing
+            fetchArgs' [] acum args                                      = Just (reverse acum, args)
+            fetchArgs' _ _ []                                            = Nothing
             fetchArgs' ((name, t1) : funcArgs) acum (val@(_, t2) : args) = if t1 == t2
                 then fetchArgs' funcArgs ((name, "funcArg", Func [([], [val], funcEnv)]) : acum) args
                 else Nothing
