@@ -11,22 +11,33 @@ internalFuncs :: [(String, [Token] -> IO [Token])]
 internalFuncs = [("___BINOP___",   binop)]
 
 binop :: [Token] -> IO [Token]
-binop args@((op, "___BINOP___") : (arg1, "num") : (arg2, "num") : argTail) =
-    return $ fromMaybe args $ do
-        func <- lookup op binOps
-        val <- func arg1 arg2
-        return $ (val, "num") : argTail
+binop args@(("___DIV___", "___BINOP___") : (_, "int") : (_, "int") : argTail) = numBinOp args "int"
+binop args@(("___DIV___", "___BINOP___") : (_, "int") : (_, "float") : argTail) = numBinOp args "float"
+binop args@(("___DIV___", "___BINOP___") : (_, "float") : (_, "int") : argTail) = numBinOp args "float"
+binop args@(("___DIV___", "___BINOP___") : (_, "float") : (_, "float") : argTail) = numBinOp args "float"
+binop args@(("___IDIV___", "___BINOP___") : (_, "int") : ("0", "int") : argTail) = return $ ("div0", "err") : argTail
+binop args@((op, "___BINOP___") : (_, "int") : (_, "int") : argTail) = numBinOp args "int"
+binop args@((op, "___BINOP___") : (_, "int") : (_, "float") : argTail) = numBinOp args "float"
+binop args@((op, "___BINOP___") : (_, "float") : (_, "int") : argTail) = numBinOp args "float"
+binop args@((op, "___BINOP___") : (_, "float") : (_, "float") : argTail) = numBinOp args "float"
 binop args = return args
 
-binOps :: [(String, String -> String -> Maybe String)]
-binOps = [("___ADD___", numBinOp (+)),
-          ("___SUM___", numBinOp (-)),
-          ("___MUL___", numBinOp (*)),
-          ("___DIV___", numBinOp (/))]
-          
-numBinOp :: (Double -> Double -> Double) -> String -> String -> Maybe String
-numBinOp f a b = show <$> (f <$> readMaybe a <*> readMaybe b)
-
+numBinOp :: [Token] -> String -> IO [Token]
+numBinOp args@((op, _) : (arg1, _) : (arg2, _) : argTail) opType = return $ fromMaybe args $ do
+    func <- lookup op $ binOps opType
+    val <- func arg1 arg2
+    return $ (val, opType) : argTail where
+    binOps "int"   = binOps' intWrap ++ [("___IDIV___", intWrap div), ("___MOD___", intWrap mod)]
+    binOps "float" = binOps' flWrap
+    binOps' wrap = [("___ADD___", wrap (+)),
+                    ("___SUM___", wrap (-)),
+                    ("___MUL___", wrap (*)),
+                    ("___DIV___", flWrap (/))]
+    intWrap :: (Integer -> Integer -> Integer) -> String -> String -> Maybe String
+    intWrap f a b = show <$> (f <$> readMaybe a <*> readMaybe b)
+    flWrap :: (Double -> Double -> Double) -> String -> String -> Maybe String
+    flWrap f a b = show <$> (f <$> readMaybe a <*> readMaybe b)
+    
 anyFunc :: [Token] -> IO [Token]
 anyFunc args = return args
 
