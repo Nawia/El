@@ -21,11 +21,11 @@ evalString envRef expr = readExpr envRef expr >>= evalAll envRef >>= (<$) <*> pr
 
 readExpr :: Env -> String -> IO [Token]
 readExpr envRef input = fromRight [] <$> runParserT (parseExpr envRef) () "El" input
-    
+
 parseExpr :: Env -> ParsecT String () IO [Token]
 parseExpr envRef = parseFunc envRef `sepBy` many1 (oneOf " \t\n")
 
 parseFunc :: Env -> ParsecT String () IO Token
 parseFunc envRef = do
-    name <- many1 (noneOf " \t\n")
-    liftIO $ (,) name <$> getTypeName envRef name
+    funcName <- many1 (noneOf " \t\n")
+    liftIO $ (,) funcName <$> getTypeName envRef funcName

@@ -25,10 +25,10 @@ type VarRef = (String, String, IORef FuncRef)
 type Env = IORef [VarRef]
 
 wrapVar :: Var -> IO VarRef
-wrapVar (name, typeName, func) = (,,) name typeName <$> (wrapFunc func >>= newIORef)
+wrapVar (pattern, typeName, func) = (,,) pattern typeName <$> (wrapFunc func >>= newIORef)
 
 unwrapVar :: VarRef -> IO Var
-unwrapVar (name, typeName, funcRef) = (,,) name typeName <$> (readIORef funcRef >>= unwrapFunc)
+unwrapVar (pattern, typeName, funcRef) = (,,) pattern typeName <$> (readIORef funcRef >>= unwrapFunc)
 
 wrapFunc :: Func -> IO FuncRef
 wrapFunc (Func func) = FuncRef <$> mapM newIORef func

@@ -1,4 +1,4 @@
-module El.Environment (nullEnv, initEnv, getTypeName, getFunc, lsFuncs, setVar, bindVars) where
+module El.Environment (nullEnv, initEnv, getTypeName, getFunc, lsFuncs, newType, setVar, bindVars) where
 import El.Data
 import Text.Regex.TDFA ((=~))
 import Data.IORef
@@ -16,13 +16,13 @@ nullEnv = newIORef []
 initEnv :: IO Env
 initEnv = do
     envRef <- newIORef []
-    bindVars envRef [("___(ADD|SUB|MUL|DIV)___", "___BINOP___", Func []),
-                     ("\\+", "+", Func [([], [], envRef)]),
-                     ("-", "-", Func [([], [], envRef)]),
-                     ("\\*", "*", Func [([], [], envRef)]),
-                     ("/", "/", Func [([], [], envRef)]),
-                     ("//", "//", Func [([], [], envRef)]),
-                     ("%", "%", Func [([], [], envRef)]),
+    bindVars envRef [("___(ADD|SUB|MUL|DIV|TYPE)___", "___BINOP___", Func []),
+                     ("\\+", "+", Func []),
+                     ("-", "-", Func []),
+                     ("\\*", "*", Func []),
+                     ("/", "/", Func []),
+                     ("//", "//", Func []),
+                     ("%", "%", Func []),
                      ("-?[0-9]+", "int",
                       Func [([("op", "+"), ("arg2", "int")],
                               [("___ADD___", "___BINOP___"), ("___SELF___", "funcArg"), ("arg2", "funcArg")],
@@ -80,18 +80,18 @@ initEnv = do
                               [("___DIV___", "___BINOP___"), ("___SELF___", "funcArg"), ("arg2", "funcArg")],
                               envRef)]),
                      ("inc", "inc", Func [([("a", "int")],
-                                           [("___ADD___", "___BINOP___"), ("a", "funcArg"), ("1", "int")],
+                                           [("a", "funcArg"), ("=", "="), ("___ADD___", "___BINOP___"), ("a", "funcArg"), ("1", "int")],
                                            envRef)]),
                      ("dec", "dec", Func [([("a", "int")],
-                                           [("___SUB___", "___BINOP___"), ("a", "funcArg"), ("1", "int")],
+                                           [("a", "funcArg"), ("=", "="), ("___SUB___", "___BINOP___"), ("a", "funcArg"), ("1", "int")],
                                            envRef)]),
-                     ("=", "assign", Func [])]
+                     ("=", "=", Func [])]
                      
 nil :: IO Func
 nil = return $ Func []
 
-nilVar :: String -> String -> IO Var
-nilVar name typeName = (,,) name typeName <$> nil
+nilVar :: Token -> IO Var
+nilVar (funcName, typeName) = (,,) funcName typeName <$> nil
 
 getTypeName :: Env -> String -> IO String
 getTypeName envRef funcName = maybe "nil" unwrap <$> (find (matchFunc funcName) <$> readIORef envRef) where
@@ -103,18 +103,21 @@ getFunc envRef (funcName, typeName) = maybeM nil unwrap findVar where
     unwrap (_, _, funcRef) = readIORef funcRef >>= unwrapFunc
     
 matchFunc :: String -> VarRef -> Bool
-matchFunc key (name, _, _) = key =~ ('^' : name ++ "$")
+matchFunc key (funcName, _, _) = key =~ ('^' : funcName ++ "$")
 
 lsFuncs :: Env -> IO [Var]
 lsFuncs envRef = readIORef envRef >>= mapM unwrapVar
 
+newType :: Env -> Token -> IO Token
+newType envRef tok = nilVar tok >>= setVar envRef >> return tok
+
 setVar :: Env -> Var -> IO Var
-setVar envRef var@(name, typeName, func) = findVar >>= maybe defineVar setFunc >> return var where
-    findVar = find ((== name) . sel1) <$> readIORef envRef
+setVar envRef var@(pattern, typeName, func) = findVar >>= maybe defineVar setFunc >> return var where
+    findVar = find ((== pattern) . sel1) <$> readIORef envRef
     defineVar = do
         env <- readIORef envRef
-        var <- wrapVar (name, typeName, func)
-        writeIORef envRef (var : env)
+        varRef <- wrapVar var
+        writeIORef envRef (varRef : env)
     setFunc (_, _, oldFuncRef) = do
         oldFunc <- readIORef oldFuncRef
         funcRef <- wrapFunc func
