@@ -6,6 +6,7 @@ import Data.IORef (newIORef)
 import Data.Foldable (foldrM)
 import Data.Bifoldable (bifoldMap)
 import Data.Maybe (fromJust, fromMaybe, listToMaybe, mapMaybe)
+import Data.List (lookup)
 import Control.Monad (liftM2, join)
 
 internalFuncs :: Env -> [(String, [Token] -> IO [Token])]
@@ -13,7 +14,6 @@ internalFuncs envRef = [("___BINOP___", binop envRef),
                         ("___SET___", setFunc envRef)]
                         
 binop :: Env -> [Token] -> IO [Token]
---binop envRef     (("___TYPE___", "___BINOP___") : (pattern, _) : (typeName, _) : argTail) = (: argTail) <$> (newType envRef (pattern, typeName))
 binop _      args@(("___TYPE___", "___BINOP___") : (_, "___BLOCK)___") : _) = blockInsert args
 binop _      args@(("___TYPE___", "___BINOP___") : (_, "___BLOCK\"___") : _) = blockInsert args
 binop envRef      (("___TYPE___", "___BINOP___") : (pattern, _) : (typeName, _) : argTail) = return $ (pattern, typeName) : argTail
@@ -32,17 +32,17 @@ numBinOp :: [Token] -> String -> IO [Token]
 numBinOp args@((op, _) : (arg1, _) : (arg2, _) : argTail) opTypeName = return $ fromMaybe args $ do
     func <- lookup op $ binOps opTypeName
     val <- func arg1 arg2
-    return $ (val, opTypeName) : argTail where
+    return $ val : argTail where
     binOps "int"   = binOps' intWrap ++ [("___IDIV___", intWrap div), ("___MOD___", intWrap mod)]
     binOps "float" = binOps' flWrap
     binOps' wrap = [("___ADD___", wrap (+)),
                     ("___SUB___", wrap (-)),
                     ("___MUL___", wrap (*)),
                     ("___DIV___", flWrap (/))]
-    intWrap :: (Integer -> Integer -> Integer) -> String -> String -> Maybe String
-    intWrap f a b = show <$> (f <$> readMaybe a <*> readMaybe b)
-    flWrap :: (Double -> Double -> Double) -> String -> String -> Maybe String
-    flWrap f a b = show <$> (f <$> readMaybe a <*> readMaybe b)
+    intWrap :: (Integer -> Integer -> Integer) -> String -> String -> Maybe Token
+    intWrap f a b = (,) <$> (show <$> (f <$> readMaybe a <*> readMaybe b)) <*> return "int"
+    flWrap :: (Double -> Double -> Double) -> String -> String -> Maybe Token
+    flWrap f a b = (,) <$> (show <$> (f <$> readMaybe a <*> readMaybe b)) <*> return "float"
     
 setFunc :: Env -> [Token] -> IO [Token]
 setFunc envRef args@(("___SET___", "___SET___") : (funcName, _) : (typeName, _) : argTail@((_, "___\"BLOCK___") : _)) = fromMaybe (return args) $ do
@@ -51,11 +51,15 @@ setFunc envRef args@(("___SET___", "___SET___") : (funcName, _) : (typeName, _) 
     (funcBody, rest) <- evalBlock envRef rest
     Just $ do
         var <- (makeFunc <$> funcArgs <*> funcBody) >>= setVar envRef
-        return $ (:) (unwrap var) rest
+        return $ unwrap var : rest
     where
         checkArgs args@((_, "___\"BLOCK___") : _) = Just args
         checkArgs _ = Nothing
-        makeFunc funcArgs funcBody = (funcName, typeName, Func [(funcArgs, funcBody, envRef)])
+        makeFunc funcArgs funcBody = (funcName, typeName, Func [(funcArgs, map makeFuncArg funcBody, envRef)]) where
+            makeFuncArg tok@(funcName, "nil") = case lookup funcName $ ("___SELF___", "___FUNCARG___") : funcArgs of
+                Just _  -> (funcName, "___FUNCARG___")
+                Nothing -> tok
+            makeFuncArg tok = tok
         unwrap (funcName, typeName, _) = (funcName, typeName)
 setFunc _ args = return args
 
@@ -85,9 +89,6 @@ evalBlock envRef ((len, _) : argTail) = do
 evalAll :: Env -> [Token] -> IO [Token]
 evalAll envRef = foldrM (\x y -> eval envRef $ x : y) []
 
-printEnv :: Env -> IO ()
-printEnv env = lsFuncs env >>= putStrLn . unlines . map show
-
 eval :: Env -> [Token] -> IO [Token]
 eval envRef args = getVar envRef (head args) >>= eval' where
     eval' (_, funcType, Func [])     = maybe (anyFunc envRef) ($) (lookup funcType $ internalFuncs envRef) args
@@ -108,15 +109,12 @@ fetchFunc (Func func) args = listToMaybe $ mapMaybe fetchArgs func where
             fetchArgs' [] acum args                                      = Just (reverse acum, args)
             fetchArgs' _ _ []                                            = Nothing
             fetchArgs' ((name, t1) : funcArgs) acum (val@(_, t2) : args) = if t1 == t2
-                then fetchArgs' funcArgs ((name, "funcArg", Func [([], [val], funcEnv)]) : acum) args
+                then fetchArgs' funcArgs ((name, "___FUNCARG___", Func [([], [val], funcEnv)]) : acum) args
                 else Nothing
                 
 buildFunc :: Var -> [Var] -> IO Func
 buildFunc (funcName, funcType, Func [(funcArgs, funcBody, funcEnvRef)]) args = do
     newFuncEnvRef <- join $ bindVars <$> nullEnv <*> lsFuncs funcEnvRef
-    setVar newFuncEnvRef ("___SELF___", "funcArg", Func [([], [(funcName, funcType)], newFuncEnvRef)])
+    setVar newFuncEnvRef ("___SELF___", "___FUNCARG___", Func [([], [(funcName, funcType)], newFuncEnvRef)])
     mapM_ (setVar newFuncEnvRef) args
     return $ Func [([], funcBody, newFuncEnvRef)]
-    --return $ (funcName, Func [([], map (bindBody closure) funcBody, closure)]) : args where
-    --bindBody envRef (name, Prim "nil" _) = (name, Prim "funcArg" envRef)
-    --bindBody _ var = var

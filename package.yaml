@@ -22,6 +22,11 @@ description:         Please see the README on GitHub at <https://github.com/Nawi
 dependencies:
 - base >= 4.7 && < 5
 
+data-dir: data
+
+data-files:
+- std.el
+
 library:
   source-dirs: src
   dependencies:
@@ -31,6 +36,7 @@ library:
   - extra
   - monad-loops
   - tuple
+  other-modules: Paths_El
 
 executables:
   El-exe:
