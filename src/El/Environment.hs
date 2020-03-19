@@ -19,22 +19,22 @@ initEnv = do
     bindVars envRef [("___(ADD|SUB|MUL|DIV|TYPE)___", "___BINOP___", Func []),
                      ("___SET___", "___SET___", Func []),
                      ("___\\(BLOCK___", "___(BLOCK___", Func []),
-                     ("___BLOCK\\)___", "___BLOCK)___", Func [([], [("0", "___BLOCK)___")], envRef)]),
+                     ("___BLOCK\\)___", "___BLOCK)___", Func [([], [Token ("0", "___BLOCK)___", [])], envRef)]),
                      ("___\"BLOCK___", "___\"BLOCK___", Func []),
-                     ("___BLOCK\"___", "___BLOCK\"___", Func [([], [("0", "___BLOCK\"___")], envRef)])]
+                     ("___BLOCK\"___", "___BLOCK\"___", Func [([], [Token ("0", "___BLOCK\"___", [])], envRef)])]
                      
 nil :: IO Func
 nil = return $ Func []
 
 nilVar :: Token -> IO Var
-nilVar (funcName, typeName) = (,,) funcName typeName <$> nil
+nilVar (Token (funcName, typeName, _)) = (,,) funcName typeName <$> nil
 
 getTypeName :: Env -> String -> IO String
 getTypeName envRef funcName = maybe "nil" unwrap <$> (find (matchFunc funcName) <$> readIORef envRef) where
     unwrap (_, typeName, _) = typeName
     
 getFunc :: Env -> Token -> IO Func
-getFunc envRef (funcName, typeName) = maybeM nil unwrap findVar where
+getFunc envRef (Token (funcName, typeName, _)) = maybeM nil unwrap findVar where
     findVar = find (matchFunc funcName) . filter ((== typeName) . sel2) <$> readIORef envRef
     unwrap (_, _, funcRef) = readIORef funcRef >>= unwrapFunc
     
