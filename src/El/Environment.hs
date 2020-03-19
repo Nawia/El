@@ -18,10 +18,8 @@ initEnv = do
     envRef <- newIORef []
     bindVars envRef [("___(ADD|SUB|MUL|DIV|TYPE)___", "___BINOP___", Func []),
                      ("___SET___", "___SET___", Func []),
-                     ("___\\(BLOCK___", "___(BLOCK___", Func []),
-                     ("___BLOCK\\)___", "___BLOCK)___", Func [([], [Token ("0", "___BLOCK)___", [])], envRef)]),
-                     ("___\"BLOCK___", "___\"BLOCK___", Func []),
-                     ("___BLOCK\"___", "___BLOCK\"___", Func [([], [Token ("0", "___BLOCK\"___", [])], envRef)])]
+                     ("___[\\(\"]BLOCK___", "___BLOCK___", Func []),
+                     ("___BLOCK[\\)\"]___", "___BLOCK___", Func [])]
                      
 nil :: IO Func
 nil = return $ Func []
