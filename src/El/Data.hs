@@ -3,22 +3,22 @@ import Data.IORef
 import Data.Functor.Classes (liftEq)
 import Data.List (intercalate)
 
-newtype Token = Token (String, String, [Token])
+data Token = Token String String [Token]
 instance Show Token where
-    show (Token (funcName, typeName, _)) = show (funcName, typeName)
+    show (Token funcName typeName _) = show (funcName, typeName)
     
-newtype Func = Func [([Token], [Token], Env)]
+data Func = Func [([Token], [Token], Env)]
 instance Show Func where
     show (Func func) = intercalate ", " $ map showFunc func where
         showFunc (args, body, _) = show args ++ ": ..."
 instance Eq Func where
     (Func func1) == (Func func2) = liftEq eqFunc func1 func2 where
         eqFunc (args1, _, _) (args2, _, _) = liftEq eqArgs args1 args2
-        eqArgs (Token (_, typeName1, _)) (Token(_, typeName2, _)) = typeName1 == typeName2
+        eqArgs (Token _ typeName1 _) (Token _ typeName2 _) = typeName1 == typeName2
         
 type Var = (String, String, Func)
 
-newtype FuncRef = FuncRef [IORef ([Token], [Token], Env)]
+data FuncRef = FuncRef [IORef ([Token], [Token], Env)]
 
 type VarRef = (String, String, IORef FuncRef)
 

@@ -11,7 +11,7 @@ import Paths_El (getDataFileName)
 
 runRepl :: Env -> IO [Token]
 runRepl envRef = iterateUntil cond $ readPrompt ">" >>= evalString envRef >>= (<$) <*> print where
-    cond (Token ("quit", _, _) : _) = True
+    cond (Token "quit" _ _ : _) = True
     cond _ = False
     
 runFile :: Env -> [String] -> IO [Token]
@@ -35,4 +35,4 @@ parseExpr envRef = parseFunc envRef `sepBy` many1 (oneOf " \t\n")
 parseFunc :: Env -> ParsecT String () IO Token
 parseFunc envRef = do
     funcName <- many1 (noneOf " \t\n")
-    liftIO $ Token <$> ((,,) funcName <$> getTypeName envRef funcName <*> return [])
+    liftIO $ Token funcName <$> getTypeName envRef funcName <*> return []

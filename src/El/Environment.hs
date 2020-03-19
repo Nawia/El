@@ -16,7 +16,7 @@ nullEnv = newIORef []
 initEnv :: IO Env
 initEnv = do
     envRef <- newIORef []
-    bindVars envRef [("___(ADD|SUB|MUL|DIV|TYPE)___", "___BINOP___", Func []),
+    bindVars envRef [("___(ADD|SUB|MUL|DIV|IDIV|TYPE)___", "___BINOP___", Func []),
                      ("___SET___", "___SET___", Func []),
                      ("___[\\(\"]BLOCK___", "___BLOCK___", Func []),
                      ("___BLOCK[\\)\"]___", "___BLOCK___", Func [])]
@@ -25,14 +25,14 @@ nil :: IO Func
 nil = return $ Func []
 
 nilVar :: Token -> IO Var
-nilVar (Token (funcName, typeName, _)) = (,,) funcName typeName <$> nil
+nilVar (Token funcName typeName _) = (,,) funcName typeName <$> nil
 
 getTypeName :: Env -> String -> IO String
 getTypeName envRef funcName = maybe "nil" unwrap <$> (find (matchFunc funcName) <$> readIORef envRef) where
     unwrap (_, typeName, _) = typeName
     
 getFunc :: Env -> Token -> IO Func
-getFunc envRef (Token (funcName, typeName, _)) = maybeM nil unwrap findVar where
+getFunc envRef (Token funcName typeName _) = maybeM nil unwrap findVar where
     findVar = find (matchFunc funcName) . filter ((== typeName) . sel2) <$> readIORef envRef
     unwrap (_, _, funcRef) = readIORef funcRef >>= unwrapFunc
     
@@ -46,7 +46,7 @@ newType :: Env -> Token -> IO Token
 newType envRef tok = nilVar tok >>= setVar envRef >> return tok
 
 setVar :: Env -> Var -> IO Var
-setVar envRef var@(pattern, typeName, func) = findVar >>= maybe defineVar setFunc >> return var where
+setVar envRef var@(pattern, _, func) = findVar >>= maybe defineVar setFunc >> return var where
     findVar = find ((== pattern) . sel1) <$> readIORef envRef
     defineVar = do
         env <- readIORef envRef
