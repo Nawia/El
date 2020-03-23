@@ -14,19 +14,16 @@ internalFuncs envRef = [("___BINOP___", binop envRef),
                         ("___SET___", setFunc envRef)]
                         
 binop :: Env -> [Token] -> IO [Token]
-binop _      args@(("___TYPE___", "___BINOP___") : (_, "___BLOCK)___") : _) = blockInsert args
-binop _      args@(("___TYPE___", "___BINOP___") : (_, "___BLOCK\"___") : _) = blockInsert args
-binop envRef      (("___TYPE___", "___BINOP___") : (pattern, _) : (typeName, _) : argTail) = return $ (pattern, typeName) : argTail
-binop _      args@(("___DIV___", "___BINOP___") : (_, "int") : (_, "int") : _) = numBinOp args "int"
-binop _      args@(("___DIV___", "___BINOP___") : (_, "int") : (_, "float") : _) = numBinOp args "float"
-binop _      args@(("___DIV___", "___BINOP___") : (_, "float") : (_, "int") : _) = numBinOp args "float"
-binop _      args@(("___DIV___", "___BINOP___") : (_, "float") : (_, "float") : _) = numBinOp args "float"
-binop _           (("___IDIV___", "___BINOP___") : (_, "int") : ("0", "int") : argTail) = return $ ("div0", "err") : argTail
-binop _      args@((op, "___BINOP___") : (_, "int") : (_, "int") : _) = numBinOp args "int"
-binop _      args@((op, "___BINOP___") : (_, "int") : (_, "float") : _) = numBinOp args "float"
-binop _      args@((op, "___BINOP___") : (_, "float") : (_, "int") : _) = numBinOp args "float"
-binop _      args@((op, "___BINOP___") : (_, "float") : (_, "float") : _) = numBinOp args "float"
-binop envRef      args = anyFunc envRef args
+binop envRef args = case args of
+    (("___TYPE___", _) : (_, "___BLOCK)___")          : _)       -> blockInsert args
+    (("___TYPE___", _) : (_, "___BLOCK\"___")         : _)       -> blockInsert args
+    (("___TYPE___", _) : (pattern, _) : (typeName, _) : argTail) -> return $ (pattern, typeName) : argTail
+    (("___IDIV___", _) : (_, "int")   : ("0", "int")  : argTail) -> return $ ("div0", "err") : argTail
+    ((op, _)           : (_, "int")   : (_, "int")    : _)       -> numBinOp args "int"
+    ((op, _)           : (_, "int")   : (_, "float")  : _)       -> numBinOp args "float"
+    ((op, _)           : (_, "float") : (_, "int")    : _)       -> numBinOp args "float"
+    ((op, _)           : (_, "float") : (_, "float")  : _)       -> numBinOp args "float"
+    _                                                            -> anyFunc envRef args
 
 numBinOp :: [Token] -> String -> IO [Token]
 numBinOp args@((op, _) : (arg1, _) : (arg2, _) : argTail) opTypeName = return $ fromMaybe args $ do
@@ -64,17 +61,26 @@ setFunc envRef args@(("___SET___", "___SET___") : (funcName, _) : (typeName, _) 
 setFunc _ args = return args
 
 anyFunc :: Env -> [Token] -> IO [Token]
-anyFunc envRef args@(("___(BLOCK___", "___(BLOCK___") : argTail@((_, "___BLOCK)___") : _)) = fromMaybe (return args) $ do
-    block <- evalBlock envRef argTail
-    Just $ bifoldMap id return block >>= evalAll envRef
-anyFunc _ args@(_ : (_, "___BLOCK)___") : _) = blockInsert args
-anyFunc _ (("___\"BLOCK___", "___\"BLOCK___") : (len, "___BLOCK\"___") : argTail) = return $ (len, "___\"BLOCK___") : argTail
-anyFunc _ args@(_ : (_, "___BLOCK\"___") : _) = blockInsert args
-anyFunc envRef ((funcName, "nil") : args@(("=", "=") : val : argTail)) = anyFunc envRef $ (funcName, funcName) : args
-anyFunc envRef (tok@(funcName, typeName) : ("=", "=") : val : argTail) = do
-    setVar envRef (funcName, typeName, Func [([], [val], envRef)])
-    return $ tok : argTail
-anyFunc _ args = return args
+anyFunc envRef args = case args of
+    (_                        :          (_, "___BLOCK)___")  : _)       -> blockParen args
+    (_                        :          (_, "___BLOCK\"___") : _)       -> blockQuote args
+    (    (funcName, "nil")    : argTail@(("=", "=")     : _   : _))      -> anyFunc envRef $ (funcName, funcName) : argTail
+    (tok@(funcName, typeName) :          ("=", "=")     : val : argTail) -> do
+        setVar envRef (funcName, typeName, Func [([], [val], envRef)])
+        return $ tok : argTail
+    _                                                                    -> return args
+    where
+        blockParen args@(("___(BLOCK___", "___(BLOCK___") : argTail) = fromMaybe (return args) $ do
+            (block, rest) <- evalBlock envRef argTail
+            Just $ block >>= flip evalTail rest
+        blockParen args                                              = block args
+        evalTail block (arg1@(_, "___BLOCK)___") : argTail) = (++) <$> evalAll envRef (block ++ [arg1]) <*> return argTail
+        evalTail block rest                                 = evalAll envRef $ block ++ rest
+        blockQuote ((_, "___\"BLOCK___") : (len, _) : argTail) = return $ (len, "___\"BLOCK___") : argTail
+        blockQuote args                                        = block args
+        block args@((_, "___BLOCK)___")  : _) = return args
+        block args@((_, "___BLOCK\"___") : _) = return args
+        block args                            = blockInsert args
 
 blockInsert :: [Token] -> IO [Token]
 blockInsert args@(arg1 : (len, typeName) : argTail) = return $ fromMaybe args $ do
