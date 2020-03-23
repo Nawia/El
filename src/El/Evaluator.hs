@@ -55,15 +55,22 @@ setFunc _ args = return args
 
 anyFunc :: Env -> [Token] -> IO [Token]
 anyFunc envRef args = case args of
-    (     Token "___(BLOCK___" "___BLOCK___" _  : Token "___BLOCK)___" "___BLOCK___" params  : argTail) -> (++ argTail) <$> evalAll envRef params
-    (_                                          : Token "___BLOCK)___" "___BLOCK___" _       : _)       -> blockInsert args
-    (     Token "___\"BLOCK___" "___BLOCK___" _ : Token "___BLOCK\"___" "___BLOCK___" params : argTail) -> return $ Token "___\"BLOCK\"___" "___BLOCK___" params : argTail
-    (_                                          : Token "___BLOCK\"___" "___BLOCK___" _      : _)       -> blockInsert args
-    (     Token funcName "nil" _                            : argTail@(Token "=" "=" _ : _   : _))      -> anyFunc envRef $ Token funcName funcName [] : argTail
-    (tok@(Token funcName typeName _)            : Token "=" "=" _                      : val : argTail) -> do
+    (_                               :          Token _ "___BLOCK___" _ : _)       -> block envRef args
+    (     Token funcName "nil" _     : argTail@(Token "=" "=" _   : _   : _))      -> anyFunc envRef $ Token funcName funcName [] : argTail
+    (tok@(Token funcName typeName _) :          Token "=" "=" _   : val : argTail) -> do
         setVar envRef (funcName, typeName, Func [([], [val], envRef)])
         return $ tok : argTail
-    _                                                                                                   -> return args
+    _                                                                              -> return args
+
+block :: Env -> [Token] -> IO [Token]
+block envRef args = case args of
+    (Token "___(BLOCK___" "___BLOCK___" _  : Token "___BLOCK)___" _ params  : argTail) -> ((++ argTail) <$> evalAll envRef params) >>= evalAll envRef
+    (Token "___BLOCK)___" "___BLOCK___" _  : Token "___BLOCK)___" _ _       : _)       -> return args
+    (_                                     : Token "___BLOCK)___" _ _       : _)       -> blockInsert args
+    (Token "___\"BLOCK___" "___BLOCK___" _ : Token "___BLOCK\"___" _ params : argTail) -> return $ Token "___\"BLOCK\"___" "___BLOCK___" params : argTail
+    (Token "___BLOCK\"___" "___BLOCK___" _ : Token "___BLOCK\"___" _ _      : _)       -> return args
+    (_                                     : Token "___BLOCK\"___" _ _      : _)       -> blockInsert args
+    _                                                                                  -> return args
 
 blockInsert :: [Token] -> IO [Token]
 blockInsert (arg1 : (Token funcName _ params) : argTail) = return $ Token funcName "___BLOCK___" (arg1 : params) : argTail
