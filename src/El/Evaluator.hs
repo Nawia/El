@@ -14,8 +14,6 @@ internalFuncs envRef = [("___BINOP___", binop envRef),
                         
 binop :: Env -> [Token] -> IO [Token]
 binop envRef args = case args of
-    (Token "___TYPE___" _ _ : Token "___BLOCK)___"  "___BLOCK___" _  : _)       -> blockInsert args
-    (Token "___TYPE___" _ _ : Token "___BLOCK\"___" "___BLOCK___" _  : _)       -> blockInsert args
     (Token "___TYPE___" _ _ : Token pattern _ _ : Token typeName _ _ : argTail) -> return $ Token pattern typeName [] : argTail
     (Token "___IDIV___" _ _ : Token _ "int" _   : Token "0" "int" _  : argTail) -> return $ Token "div0" "err" [] : argTail
     (Token op _ _           : Token _ "int" _   : Token _ "int" _    : _)       -> numBinOp args "int"
@@ -23,7 +21,7 @@ binop envRef args = case args of
     (Token op _ _           : Token _ "float" _ : Token _ "int" _    : _)       -> numBinOp args "float"
     (Token op _ _           : Token _ "float" _ : Token _ "float" _  : _)       -> numBinOp args "float"
     _                                                                           -> anyFunc envRef args
-
+    
 numBinOp :: [Token] -> String -> IO [Token]
 numBinOp args@(Token op _ _ : Token arg1 _ _ : Token arg2 _ _ : argTail) opTypeName = return $ fromMaybe args $ do
     func <- lookup op $ binOps opTypeName
@@ -83,7 +81,7 @@ eval envRef args = getVar (head args) >>= eval' where
     eval' (_, funcType, Func [])     = maybe (anyFunc envRef) ($) (lookup funcType $ internalFuncs envRef) args
     eval' (funcName, funcType, func) = case fetchFunc func $ tail args of
         Nothing                               -> anyFunc envRef args
-        Just (Func [(_, [], _)], _, _)        -> return args
+        Just (Func [(_, [], _)], _, _)        -> anyFunc envRef args
         Just (fetchedFunc, funcArgs, argTail) -> do
             (Func [(_, funcBody, funcEnvRef)]) <- buildFunc (funcName, funcType, fetchedFunc) funcArgs
             evalAll funcEnvRef funcBody >>= eval envRef . (++ argTail)

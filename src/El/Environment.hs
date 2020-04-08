@@ -20,7 +20,7 @@ initEnv = do
                      ("___SET___", "___SET___", Func []),
                      ("___[\\(\"]BLOCK___", "___BLOCK___", Func []),
                      ("___BLOCK[\\)\"]___", "___BLOCK___", Func [])]
-                     
+
 nil :: IO Func
 nil = return $ Func []
 
