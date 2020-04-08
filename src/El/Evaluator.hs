@@ -73,14 +73,11 @@ anyFunc envRef args = case args of
         blockParen args@(("___(BLOCK___", "___(BLOCK___") : argTail) = fromMaybe (return args) $ do
             (block, rest) <- evalBlock envRef argTail
             Just $ block >>= flip evalTail rest
-        blockParen args                                              = block args
+        blockParen args                                              = blockInsert args
         evalTail block (arg1@(_, "___BLOCK)___") : argTail) = (++) <$> evalAll envRef (block ++ [arg1]) <*> return argTail
         evalTail block rest                                 = evalAll envRef $ block ++ rest
         blockQuote ((_, "___\"BLOCK___") : (len, _) : argTail) = return $ (len, "___\"BLOCK___") : argTail
-        blockQuote args                                        = block args
-        block args@((_, "___BLOCK)___")  : _) = return args
-        block args@((_, "___BLOCK\"___") : _) = return args
-        block args                            = blockInsert args
+        blockQuote args                                        = blockInsert args
 
 blockInsert :: [Token] -> IO [Token]
 blockInsert args@(arg1 : (len, typeName) : argTail) = return $ fromMaybe args $ do
@@ -100,7 +97,7 @@ eval envRef args = getVar envRef (head args) >>= eval' where
     eval' (_, funcType, Func [])     = maybe (anyFunc envRef) ($) (lookup funcType $ internalFuncs envRef) args
     eval' (funcName, funcType, func) = case fetchFunc func $ tail args of
         Nothing                               -> anyFunc envRef args
-        Just (Func [(_, [], _)], _, _)        -> return args
+        Just (Func [(_, [], _)], _, _)        -> anyFunc envRef args
         Just (fetchedFunc, funcArgs, argTail) -> do
             (Func [(_, funcBody, funcEnvRef)]) <- buildFunc (funcName, funcType, fetchedFunc) funcArgs
             evalAll funcEnvRef funcBody >>= eval envRef . (++ argTail)
@@ -119,7 +116,7 @@ fetchFunc (Func func) args = listToMaybe $ mapMaybe fetchArgs func where
                 else Nothing
                 
 buildFunc :: Var -> [Var] -> IO Func
-buildFunc (funcName, funcType, Func [(funcArgs, funcBody, funcEnvRef)]) args = do
+buildFunc (funcName, funcType, Func [(_, funcBody, funcEnvRef)]) args = do
     newFuncEnvRef <- join $ bindVars <$> nullEnv <*> lsFuncs funcEnvRef
     setVar newFuncEnvRef ("___SELF___", "___FUNCARG___", Func [([], [(funcName, funcType)], newFuncEnvRef)])
     mapM_ (setVar newFuncEnvRef) args

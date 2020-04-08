@@ -19,7 +19,8 @@ initEnv = do
     bindVars envRef [("___(ADD|SUB|MUL|DIV|TYPE)___", "___BINOP___", Func []),
                      ("___SET___", "___SET___", Func []),
                      ("___\\(BLOCK___", "___(BLOCK___", Func []),
-                     ("___BLOCK\\)___", "___BLOCK)___", Func [([], [("0", "___BLOCK)___")], envRef)]),
+                     ("___BLOCK\\)___", "___BLOCK)___", Func [([("a", "___BLOCK\"___")], [], envRef),
+                                                              ([], [("0", "___BLOCK)___")], envRef)]),
                      ("___\"BLOCK___", "___\"BLOCK___", Func []),
                      ("___BLOCK\"___", "___BLOCK\"___", Func [([], [("0", "___BLOCK\"___")], envRef)])]
                      
