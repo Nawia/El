@@ -1,13 +1,13 @@
 ___SET___ setType setType ___"BLOCK___ pattern typeName ___BLOCK"___ ___"BLOCK___ set pattern typeName { } { } ___BLOCK"___
-___SET___ =  =  ___"BLOCK___ ___BLOCK"___ ___"BLOCK___ ___BLOCK"___
+___ALIAS___ alias ___ALIAS___
 
-set = ___SET___
-type = ___TYPE___
-self = ___SELF___
-{ = ___"BLOCK___
-} = ___BLOCK"___
-\( = ___(BLOCK___
-\) = ___BLOCK)___
+alias set  ___SET___
+alias type ___TYPE___
+alias self ___SELF___
+alias {    ___"BLOCK___
+alias }    ___BLOCK"___
+alias \(   ___(BLOCK___
+alias \)   ___BLOCK)___
 
 set -?[0-9]*\.?[0-9]+ float { type op + type arg2 float } { ___ADD___ self arg2 }
 set -?[0-9]*\.?[0-9]+ float { type op + type arg2 int }   { ___ADD___ self arg2 }
