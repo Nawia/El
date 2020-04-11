@@ -10,10 +10,12 @@ import Control.Monad (liftM2, join)
 
 internalFuncs :: Env -> [(String, [Token] -> IO [Token])]
 internalFuncs envRef = [("___BINOP___", binop envRef),
-                        ("___SET___", setFunc envRef)]
+                        ("___SET___", setFunc envRef),
+                        ("___ALIAS___", aliasFunc envRef)]
                         
 binop :: Env -> [Token] -> IO [Token]
 binop envRef args = case args of
+    (Token "___TYPE___" _ _ : Token _ "___BLOCK___" _                : _)       -> anyFunc envRef args
     (Token "___TYPE___" _ _ : Token pattern _ _ : Token typeName _ _ : argTail) -> return $ Token pattern typeName [] : argTail
     (Token "___IDIV___" _ _ : Token _ "int" _   : Token "0" "int" _  : argTail) -> return $ Token "div0" "err" [] : argTail
     (Token op _ _           : Token _ "int" _   : Token _ "int" _    : _)       -> numBinOp args "int"
@@ -49,16 +51,24 @@ setFunc envRef args@(Token "___SET___" _ _ : Token funcName _ _ : Token typeName
         makeFuncArg tok = tok
         isArg argName (Token tokName _ _) = argName == tokName
         unwrap (funcName, typeName, _) = Token funcName typeName []
-setFunc _ args = return args
+setFunc envRef args = anyFunc envRef args
+
+aliasFunc :: Env -> [Token] -> IO [Token]
+aliasFunc envRef args@(Token "___ALIAS___" _ _ : _) = case args of
+    (_ : Token "___BLOCK)___" "___BLOCK___" [tok]  : argTail) -> aliasFunc' $ tok : Token "___BLOCK)___" "___BLOCK___" [] : argTail
+    (_ : Token "___BLOCK\"___" "___BLOCK___" [tok] : argTail) -> aliasFunc' $ tok : Token "___BLOCK\"___" "___BLOCK___" [] : argTail
+    (_ : Token funcName "nil" _ : val              : argTail) -> aliasFunc' $ Token funcName funcName [] : val : argTail
+    (_ : tok                    : val              : argTail) -> aliasFunc' $ tok : val : argTail
+    _                                            -> anyFunc envRef args
+    where
+        aliasFunc' (tok@(Token funcName typeName _) : val : argTail) = do
+            setVar envRef (funcName, typeName, Func [([], [val], envRef)])
+            return $ tok : argTail
 
 anyFunc :: Env -> [Token] -> IO [Token]
 anyFunc envRef args = case args of
-    (_                               :          Token _ "___BLOCK___" _ : _)       -> block envRef args
-    (     Token funcName "nil" _     : argTail@(Token "=" "=" _   : _   : _))      -> anyFunc envRef $ Token funcName funcName [] : argTail
-    (tok@(Token funcName typeName _) :          Token "=" "=" _   : val : argTail) -> do
-        setVar envRef (funcName, typeName, Func [([], [val], envRef)])
-        return $ tok : argTail
-    _                                                                              -> return args
+    (_                               :          Token _ "___BLOCK___" _ : _) -> block envRef args
+    _                                                                        -> return args
 
 block :: Env -> [Token] -> IO [Token]
 block envRef args = case args of
