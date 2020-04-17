@@ -16,7 +16,9 @@ nullEnv = newIORef []
 initEnv :: IO Env
 initEnv = do
     envRef <- newIORef []
-    bindVars envRef [("___(ADD|SUB|MUL|DIV|IDIV|MOD|TYPE)___", "___BINFUNC___", Func []),
+    bindVars envRef [("___(ADD|SUB|MUL|DIV|IDIV|MOD)___", "___MATHFUNC___", Func []),
+                     ("___(EQ|NEQ|LS|LQ|GT|GQ)___", "___CMPFUNC___", Func []),
+                     ("___TYPE___", "___TYPE___", Func []),
                      ("___SET___", "___SET___", Func []),
                      ("___ALIAS___", "___ALIAS___", Func []),
                      ("___\\(BLOCK___", "___(BLOCK___", Func []),

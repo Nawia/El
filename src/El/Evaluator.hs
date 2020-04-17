@@ -10,38 +10,70 @@ import Data.List (lookup)
 import Control.Monad (liftM2, join)
 
 internalFuncs :: Env -> [(String, [Token] -> IO [Token])]
-internalFuncs envRef = [("___BINFUNC___", binFunc envRef),
-                        ("___SET___", setFunc envRef),
-                        ("___ALIAS___", aliasFunc envRef)]
+internalFuncs envRef = [("___MATHFUNC___", mathFunc envRef),
+                        ("___CMPFUNC___",  cmpFunc envRef),
+                        ("___TYPE___",     typeFunc envRef),
+                        ("___SET___",      setFunc envRef),
+                        ("___ALIAS___",    aliasFunc envRef)]
                         
-binFunc :: Env -> [Token] -> IO [Token]
-binFunc envRef args = case args of
-    (("___TYPE___", _) : (_, "___BLOCK)___")          : _)       -> blockInsert args
-    (("___TYPE___", _) : (_, "___BLOCK\"___")         : _)       -> blockInsert args
-    (("___TYPE___", _) : (pattern, _) : (typeName, _) : argTail) -> return $ (pattern, typeName) : argTail
+mathFunc :: Env -> [Token] -> IO [Token]
+mathFunc envRef args = case args of
     (("___IDIV___", _) : (_, "int")   : ("0", "int")  : argTail) -> return $ ("div0", "err") : argTail
     (("___MOD___", _)  : (_, "int")   : ("0", "int")  : argTail) -> return $ ("div0", "err") : argTail
-    (_                 : (_, "int")   : (_, "int")    : _)       -> mathFunc "int" args
-    (_                 : (_, "int")   : (_, "float")  : _)       -> mathFunc "float" args
-    (_                 : (_, "float") : (_, "int")    : _)       -> mathFunc "float" args
-    (_                 : (_, "float") : (_, "float")  : _)       -> mathFunc "float" args
+    (_                 : (_, "int")   : (_, "int")    : _)       -> mathF "int" args
+    (_                 : (_, "int")   : (_, "float")  : _)       -> mathF "float" args
+    (_                 : (_, "float") : (_, "int")    : _)       -> mathF "float" args
+    (_                 : (_, "float") : (_, "float")  : _)       -> mathF "float" args
     _                                                            -> anyFunc envRef args
 
-mathFunc :: String -> [Token] -> IO [Token]
-mathFunc opTypeName args@((op, _) : (arg1, _) : (arg2, _) : argTail) = return $ fromMaybe args $ do
+mathF :: String -> [Token] -> IO [Token]
+mathF opTypeName args@((op, _) : (arg1, _) : (arg2, _) : argTail) = return $ fromMaybe args $ do
     func <- lookup op $ mathOps opTypeName
     val <- func arg1 arg2
     return $ val : argTail where
     mathOps "int"   = mathOps' intWrap ++ [("___IDIV___", intWrap div), ("___MOD___", intWrap mod)]
     mathOps "float" = mathOps' flWrap
     mathOps' wrap = [("___ADD___", wrap (+)),
-                    ("___SUB___", wrap (-)),
-                    ("___MUL___", wrap (*)),
-                    ("___DIV___", flWrap (/))]
+                     ("___SUB___", wrap (-)),
+                     ("___MUL___", wrap (*)),
+                     ("___DIV___", flWrap (/))]
     intWrap :: (Integer -> Integer -> Integer) -> String -> String -> Maybe Token
     intWrap f a b = (,) <$> (show <$> (f <$> readMaybe a <*> readMaybe b)) <*> return "int"
     flWrap :: (Double -> Double -> Double) -> String -> String -> Maybe Token
     flWrap f a b = (,) <$> (show <$> (f <$> readMaybe a <*> readMaybe b)) <*> return "float"
+    
+cmpFunc :: Env -> [Token] -> IO [Token]
+cmpFunc envRef args = case args of
+    (_ : (_, "int")   : (_, "int")   : _) -> cmpF "int" args
+    (_ : (_, "int")   : (_, "float") : _) -> cmpF "float" args
+    (_ : (_, "float") : (_, "int")   : _) -> cmpF "float" args
+    (_ : (_, "float") : (_, "float") : _) -> cmpF "float" args
+    _                                      -> anyFunc envRef args
+
+cmpF :: String -> [Token] -> IO [Token]
+cmpF opTypeName args@((op, _) : (arg1, _) : (arg2, _) : argTail) = return $ fromMaybe args $ do
+    func <- lookup op $ cmpOps opTypeName
+    val <- func arg1 arg2
+    return $ val : argTail where
+    cmpOps "int"   = cmpOps' intWrap
+    cmpOps "float" = cmpOps' flWrap
+    cmpOps' wrap = [("___EQ___",  wrap (==)),
+                    ("___NEQ___", wrap (/=)),
+                    ("___LS___",  wrap (<)),
+                    ("___LQ___",  wrap (<=)),
+                    ("___GT___",  wrap (>)),
+                    ("___GQ___",  wrap (>=))]
+    intWrap :: (Integer -> Integer -> Bool) -> String -> String -> Maybe Token
+    intWrap f a b = (,) <$> (show <$> (f <$> readMaybe a <*> readMaybe b)) <*> return "bool"
+    flWrap :: (Double -> Double -> Bool) -> String -> String -> Maybe Token
+    flWrap f a b = (,) <$> (show <$> (f <$> readMaybe a <*> readMaybe b)) <*> return "bool"
+
+typeFunc :: Env -> [Token] -> IO [Token]
+typeFunc envRef args = case args of
+    (("___TYPE___", _) : (_, "___BLOCK)___")          : _)       -> blockInsert args
+    (("___TYPE___", _) : (_, "___BLOCK\"___")         : _)       -> blockInsert args
+    (("___TYPE___", _) : (pattern, _) : (typeName, _) : argTail) -> return $ (pattern, typeName) : argTail
+    _                                                            -> anyFunc envRef args
     
 setFunc :: Env -> [Token] -> IO [Token]
 setFunc envRef args@(("___SET___", _) : (funcName, _) : (typeName, _) : argTail@((_, "___\"BLOCK___") : _)) = fromMaybe (return args) $ do
