@@ -14,7 +14,7 @@ instance Show Func where
 instance Eq Func where
     (Func func1) == (Func func2) = liftEq eqFunc func1 func2 where
         eqFunc (args1, _, _) (args2, _, _) = liftEq eqArgs args1 args2
-        eqArgs (_, typeName1) (_, typeName2) = typeName1 == typeName2
+        eqArgs (funcName1, typeName1) (funcName2, typeName2) = typeName1 == typeName2 && (typeName1 /= "___CONST___" || funcName1 == funcName2)
         
 type Var = (String, String, Func)
 

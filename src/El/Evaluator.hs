@@ -10,30 +10,31 @@ import Data.List (lookup)
 import Control.Monad (liftM2, join)
 
 internalFuncs :: Env -> [(String, [Token] -> IO [Token])]
-internalFuncs envRef = [("___BINOP___", binop envRef),
+internalFuncs envRef = [("___BINFUNC___", binFunc envRef),
                         ("___SET___", setFunc envRef),
                         ("___ALIAS___", aliasFunc envRef)]
                         
-binop :: Env -> [Token] -> IO [Token]
-binop envRef args = case args of
+binFunc :: Env -> [Token] -> IO [Token]
+binFunc envRef args = case args of
     (("___TYPE___", _) : (_, "___BLOCK)___")          : _)       -> blockInsert args
     (("___TYPE___", _) : (_, "___BLOCK\"___")         : _)       -> blockInsert args
     (("___TYPE___", _) : (pattern, _) : (typeName, _) : argTail) -> return $ (pattern, typeName) : argTail
     (("___IDIV___", _) : (_, "int")   : ("0", "int")  : argTail) -> return $ ("div0", "err") : argTail
-    ((op, _)           : (_, "int")   : (_, "int")    : _)       -> numBinOp args "int"
-    ((op, _)           : (_, "int")   : (_, "float")  : _)       -> numBinOp args "float"
-    ((op, _)           : (_, "float") : (_, "int")    : _)       -> numBinOp args "float"
-    ((op, _)           : (_, "float") : (_, "float")  : _)       -> numBinOp args "float"
+    (("___MOD___", _)  : (_, "int")   : ("0", "int")  : argTail) -> return $ ("div0", "err") : argTail
+    (_                 : (_, "int")   : (_, "int")    : _)       -> mathFunc "int" args
+    (_                 : (_, "int")   : (_, "float")  : _)       -> mathFunc "float" args
+    (_                 : (_, "float") : (_, "int")    : _)       -> mathFunc "float" args
+    (_                 : (_, "float") : (_, "float")  : _)       -> mathFunc "float" args
     _                                                            -> anyFunc envRef args
 
-numBinOp :: [Token] -> String -> IO [Token]
-numBinOp args@((op, _) : (arg1, _) : (arg2, _) : argTail) opTypeName = return $ fromMaybe args $ do
-    func <- lookup op $ binOps opTypeName
+mathFunc :: String -> [Token] -> IO [Token]
+mathFunc opTypeName args@((op, _) : (arg1, _) : (arg2, _) : argTail) = return $ fromMaybe args $ do
+    func <- lookup op $ mathOps opTypeName
     val <- func arg1 arg2
     return $ val : argTail where
-    binOps "int"   = binOps' intWrap ++ [("___IDIV___", intWrap div), ("___MOD___", intWrap mod)]
-    binOps "float" = binOps' flWrap
-    binOps' wrap = [("___ADD___", wrap (+)),
+    mathOps "int"   = mathOps' intWrap ++ [("___IDIV___", intWrap div), ("___MOD___", intWrap mod)]
+    mathOps "float" = mathOps' flWrap
+    mathOps' wrap = [("___ADD___", wrap (+)),
                     ("___SUB___", wrap (-)),
                     ("___MUL___", wrap (*)),
                     ("___DIV___", flWrap (/))]
@@ -118,11 +119,13 @@ fetchFunc (Func func) args = listToMaybe $ mapMaybe fetchArgs func where
         Nothing                  -> Nothing
         Just (funcArgs, argTail) -> Just (Func [func], funcArgs, argTail)
         where
-            fetchArgs' [] acum args                                      = Just (reverse acum, args)
-            fetchArgs' _ _ []                                            = Nothing
-            fetchArgs' ((name, t1) : funcArgs) acum (val@(_, t2) : args) = if t1 == t2
-                then fetchArgs' funcArgs ((name, "___FUNCARG___", Func [([], [val], funcEnv)]) : acum) args
-                else Nothing
+            fetchArgs' [] acum args                                     = Just (reverse acum, args)
+            fetchArgs' _ _ []                                           = Nothing
+            fetchArgs' ((n1, t1) : funcArgs) acum (val@(n2, t2) : args) = if t1 == "___CONST___" && n1 == n2
+                then fetchArgs' funcArgs acum args
+                else if t1 == t2
+                    then fetchArgs' funcArgs ((n1, "___FUNCARG___", Func [([], [val], funcEnv)]) : acum) args
+                    else Nothing
                 
 buildFunc :: Var -> [Var] -> IO Func
 buildFunc (funcName, funcType, Func [(_, funcBody, funcEnvRef)]) args = do
