@@ -6,7 +6,7 @@ import Data.IORef (newIORef)
 import Data.Foldable (foldrM)
 import Data.Bifoldable (bifoldMap)
 import Data.Maybe (fromJust, fromMaybe, listToMaybe, mapMaybe)
-import Data.List (lookup)
+import Data.List (lookup, splitAt)
 import Control.Monad (liftM2, join)
 
 internalFuncs :: Env -> [(String, [Token] -> IO [Token])]
@@ -118,8 +118,19 @@ anyFunc envRef args = case args of
         blockParen args                                              = blockInsert args
         evalTail block (arg1@(_, "___BLOCK)___") : argTail) = (++) <$> evalAll envRef (block ++ [arg1]) <*> return argTail
         evalTail block rest                                 = evalAll envRef $ block ++ rest
-        blockQuote ((_, "___\"BLOCK___") : (len, _) : argTail) = return $ (len, "___\"BLOCK___") : argTail
-        blockQuote args                                        = blockInsert args
+        blockQuote (quote1@(_, "___BLOCK\"___") : quote2   : argTail) = blockInsert $ quote2 : quote1 : argTail
+        blockQuote ((_, "___\"BLOCK___")        : ("0", _) : argTail) = return $ ("0", "___\"BLOCK___") : argTail
+        blockQuote ((_, "___\"BLOCK___")        : (len, _) : argTail) = return $ fromMaybe args $ do
+            val <- (readMaybe len :: Maybe Int)
+            let (xs, ys) = splitAt val argTail
+            let (len2, typeName) = last xs
+            if typeName == "___BLOCK\"___"
+                then do
+                    val1 <- show <$> ((+ val) <$> readMaybe len2)
+                    let val2 = show $ val - 1
+                    return $ (val1, "___BLOCK\"___") : (val2, "___\"BLOCK___") : ((init xs) ++ ys)
+                else return $ (len, "___\"BLOCK___") : argTail
+        blockQuote args                                               = blockInsert args
 
 blockInsert :: [Token] -> IO [Token]
 blockInsert args@(arg1 : (len, typeName) : argTail) = return $ fromMaybe args $ do
